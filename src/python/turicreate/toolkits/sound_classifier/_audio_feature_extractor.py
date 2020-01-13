@@ -1,4 +1,5 @@
 import time as _time
+import tqdm
 
 from coremltools.models import MLModel
 import numpy as _np
@@ -48,21 +49,39 @@ class VGGishFeatureExtractor(object):
         # Can't run as a ".apply(...)" due to numba.jit decorator issue:
         # https://github.com/apple/turicreate/issues/1216
         preprocessed_data, audio_data_index = [], []
-        for i, audio_dict in enumerate(audio_data):
-            scaled_data = audio_dict['data'] / 32768.0
-            data = waveform_to_examples(scaled_data, audio_dict['sample_rate'])
+        print("(_audio_feature_extractor.py) Initiating audio loop.")
+        print("(_audio_feature_extractor.py) Processing " + str(len(audio_data)) + " items.")
+        audio_data_length = len(audio_data)
+
+        for i in range(audio_data_length):
+            start = _time.time()
+            item_counter = str(i + 1) + " of " + str(audio_data_length)
+            print("(_audio_feature_extractor.py) " + item_counter + ": Set scaled data.")
+            scaled_data = audio_data[i]['data'] / 32768.0
+            print("(_audio_feature_extractor.py) " + item_counter + ": Convert waveform.")
+            data = waveform_to_examples(scaled_data, audio_data[i]['sample_rate'])
+
+            data_length = len(data)
 
             for j in data:
+                #print("(_audio_feature_extractor.py) " + item_counter + ": Appending preprocessed data.")
                 preprocessed_data.append([j])
+                #print("(_audio_feature_extractor.py) " + item_counter + ": Appending audio data index.")
                 audio_data_index.append(i)
 
             # If `verbose` is set, print an progress update about every 20s
-            if verbose and _time.time() - last_progress_update >= 20:
-                if not progress_header_printed:
-                    print("Preprocessing audio data -")
-                    progress_header_printed = True
-                print("Preprocessed {} of {} examples".format(i, len(audio_data)))
-                last_progress_update = _time.time()
+            #if verbose and _time.time() - last_progress_update >= 20:
+            #    if not progress_header_printed:
+            #        print("Preprocessing audio data -")
+            #        progress_header_printed = True
+            #    print("Preprocessed {} of {} examples".format(i, len(audio_data)))
+            #    last_progress_update = _time.time()
+
+            stop = _time.time()
+            duration = stop-start
+            print("(_audio_feature_extractor.py) Duration: " + str(duration))
+
+        print("(_audio_feature_extractor.py) Loop completed.")
 
         if progress_header_printed:
             print("Preprocessed {} of {} examples\n".format(len(audio_data), len(audio_data)))
@@ -70,9 +89,8 @@ class VGGishFeatureExtractor(object):
 
     def __init__(self):
         vggish_model_file = VGGish()
-        self.mac_ver = _mac_ver()
 
-        if self.mac_ver < (10, 14):
+        if _mac_ver() < (10, 14):
             # Use TensorFlow/Keras
             import turicreate.toolkits._tf_utils as _utils
             self.gpu_policy = _utils.TensorFlowGPUPolicy()
@@ -86,7 +104,7 @@ class VGGishFeatureExtractor(object):
             self.vggish_model = MLModel(model_path)
 
     def __del__(self):
-        if self.mac_ver < (10, 14):
+        if _mac_ver() < (10, 14):
             self.gpu_policy.stop()
 
     def _extract_features(self, preprocessed_data, verbose=True):
@@ -149,10 +167,39 @@ class VGGishFeatureExtractor(object):
         '''
         Performs both audio preprocessing and VGGish deep feature extraction.
         '''
-        preprocessed_data, row_ids = self._preprocess_data(audio_data, verbose)
+        print("(_audio_feature_extractor.py) Preprocessing audio data.")
+        
+        import os
+        NUMPY_PREPROCESS = '/home/ec2-user/turicreate-training/sframes/2020-01-12/numpy_preprocess/'
+        NUMPY_PREPROCESS_IDS = '/home/ec2-user/turicreate-training/sframes/2020-01-12/numpy_preprocess_ids/'
+
+        if not os.path.exists(NUMPY_PREPROCESS) and not os.path.exists(NUMPY_PREPROCESS_IDS):
+            preprocessed_data, row_ids = self._preprocess_data(audio_data, verbose)
+            print("(_audio_feature_extractor.py) Saving preprocessed array.")
+            
+            if not os.path.exists(NUMPY_PREPROCESS):
+                print("(_audio_feature_extractor.py) Preprocess directory does not exist. Creating.")
+                os.mkdir(NUMPY_PREPROCESS)
+            
+            _np.save(NUMPY_PREPROCESS + 'numpy_preprocess', preprocessed_data)
+            print("(_audio_feature_extractor.py) Saving row id array.")
+            
+            if not os.path.exists(NUMPY_PREPROCESS_IDS):
+                print("(_audio_feature_extractor.py) Preprocess IDs directory does not exist. Creating.")
+                os.mkdir(NUMPY_PREPROCESS_IDS)
+
+            _np.save(NUMPY_PREPROCESS_IDS + 'numpy_preprocess_ids', row_ids)
+        else:
+            print("(_audio_feature_extractor.py) Directories exist. Loading arrays from file.")
+            preprocessed_data = _np.load(NUMPY_PREPROCESS + 'numpy_preprocess.npy')
+            row_ids = _np.load(NUMPY_PREPROCESS_IDS + 'numpy_preprocess_ids.npy')
+
+        print("(_audio_feature_extractor.py) Extracting deep features.")
         deep_features = self._extract_features(preprocessed_data, verbose)
 
+        print("(_audio_feature_extractor.py) Generating deep feature output.")
         output = _tc.SFrame({'deep features': deep_features, 'row id': row_ids})
+        print("(_audio_feature_extractor.py) Unstack deep features.")
         output = output.unstack('deep features')
 
         max_row_id = len(audio_data)
@@ -162,6 +209,7 @@ class VGGishFeatureExtractor(object):
                                      'row id': missing_ids})
             output = output.append(empty_rows)
 
+        print("(_audio_feature_extractor.py) Sorting output.")
         output = output.sort('row id')
         return output['List of deep features']
 

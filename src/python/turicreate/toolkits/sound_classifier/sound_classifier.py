@@ -13,7 +13,6 @@ from __future__ import absolute_import as _
 import logging as _logging
 from math import ceil as _ceil
 import numpy as _np
-import six as _six
 
 import turicreate as _tc
 import turicreate.toolkits._internal_utils as _tk_utils
@@ -282,14 +281,16 @@ def get_deep_features(audio_data, verbose=True):
         raise TypeError("Input must be audio data")
 
     feature_extractor_name = 'VGGish'
+    print("(sound_classifer.py) Loading VGGish feature extractor.")
     feature_extractor = _get_feature_extractor(feature_extractor_name)
 
+    print("(sound_classifer.py) Initiating get_deep_features function.")
     return feature_extractor.get_deep_features(audio_data, verbose=verbose)
 
 
 def create(dataset, target, feature, max_iterations=10,
            custom_layer_sizes=[100, 100], verbose=True,
-           validation_set='auto', batch_size=64):
+           validation_set='auto', batch_size=64, deep_feature_directory=False):
     '''
     Creates a :class:`SoundClassifier` model.
 
@@ -344,69 +345,95 @@ def create(dataset, target, feature, max_iterations=10,
     from ._audio_feature_extractor import _get_feature_extractor
 
     start_time = time.time()
-    if not isinstance(dataset, _tc.SFrame):
-        raise TypeError('"dataset" must be of type SFrame.')
-    # check parameters
-    if len(dataset) == 0:
-        raise _ToolkitError('Unable to train on empty dataset')
-    if feature not in dataset.column_names():
-        raise _ToolkitError("Audio feature column '%s' does not exist" % feature)
-    if not _is_deep_feature_sarray(dataset[feature]) and not _is_audio_data_sarray(dataset[feature]):
-        raise _ToolkitError("'%s' column is not audio data." % feature)
-    if target not in dataset.column_names():
-        raise _ToolkitError("Target column '%s' does not exist" % target)
-    if not _tc.util._is_non_string_iterable(custom_layer_sizes) or len(custom_layer_sizes) == 0:
-        raise _ToolkitError("'custom_layer_sizes' must be a non-empty list.")
-    for i in custom_layer_sizes:
-        if not isinstance(i, int):
-            raise _ToolkitError("'custom_layer_sizes' must contain only integers.")
-        if not i >= 1:
-            raise _ToolkitError("'custom_layer_sizes' must contain integers >= 1.")
-    if not (isinstance(validation_set, _tc.SFrame) or validation_set == 'auto' or validation_set is None):
-        raise TypeError("Unrecognized value for 'validation_set'")
-    if isinstance(validation_set, _tc.SFrame):
-        if feature not in validation_set.column_names() or target not in validation_set.column_names():
-            raise ValueError("The 'validation_set' SFrame must be in the same format as the 'dataset'")
-    if not isinstance(batch_size, int):
-        raise TypeError("'batch_size' must be of type int.")
-    if batch_size < 1:
-        raise ValueError('\'batch_size\' must be greater than or equal to 1')
-    if not isinstance(max_iterations, int):
-        raise TypeError("'max_iterations' must be type int.")
-    _tk_utils._numeric_param_check_range('max_iterations', max_iterations, 1, _six.MAXSIZE)
 
+    save_sframe = True
+    
+    # Check if sframe model already exists
+    if deep_feature_directory:
+        import os
 
-    classes = list(dataset[target].unique().sort())
-    num_labels = len(classes)
-    if num_labels <= 1:
-        raise ValueError('The number of classes must be greater than one.')
-    feature_extractor_name = 'VGGish'
-    feature_extractor = _get_feature_extractor(feature_extractor_name)
-    class_label_to_id = {l: i for i, l in enumerate(classes)}
+        if os.path.exists(deep_feature_directory):
+            save_sframe = False
 
-    # create the validation set
-    if not isinstance(validation_set, _tc.SFrame) and validation_set == 'auto':
-        if len(dataset) >= 100:
-            print ( "Creating a validation set from 5 percent of training data. This may take a while.\n"
-                    "\tYou can set ``validation_set=None`` to disable validation tracking.\n")
-            dataset, validation_set = dataset.random_split(0.95, exact=True)
+    if save_sframe==True:
+        print("(sound_classifer.py) Validating sframe data in Turicreate...")
+        if not isinstance(dataset, _tc.SFrame):
+            raise TypeError('"dataset" must be of type SFrame.')
+        # check parameters
+        if len(dataset) == 0:
+            raise _ToolkitError('Unable to train on empty dataset')
+        if feature not in dataset.column_names():
+            raise _ToolkitError("Audio feature column '%s' does not exist" % feature)
+        if not _is_deep_feature_sarray(dataset[feature]) and not _is_audio_data_sarray(dataset[feature]):
+            raise _ToolkitError("'%s' column is not audio data." % feature)
+        if target not in dataset.column_names():
+            raise _ToolkitError("Target column '%s' does not exist" % target)
+        if not _tc.util._is_non_string_iterable(custom_layer_sizes) or len(custom_layer_sizes) == 0:
+            raise _ToolkitError("'custom_layer_sizes' must be a non-empty list.")
+        for i in custom_layer_sizes:
+            if not isinstance(i, int):
+                raise _ToolkitError("'custom_layer_sizes' must contain only integers.")
+        if not (isinstance(validation_set, _tc.SFrame) or validation_set == 'auto' or validation_set is None):
+            raise TypeError("Unrecognized value for 'validation_set'")
+        if isinstance(validation_set, _tc.SFrame):
+            if feature not in validation_set.column_names() or target not in validation_set.column_names():
+                raise ValueError("The 'validation_set' SFrame must be in the same format as the 'dataset'")
+        if batch_size < 1:
+            raise ValueError('\'batch_size\' must be greater than or equal to 1')
+
+        print("(sound_classifer.py) Sorting classes.")
+        classes = list(dataset[target].unique().sort())
+        num_labels = len(classes)
+        if num_labels <= 1:
+            raise ValueError('The number of classes must be greater than one.')
+        feature_extractor_name = 'VGGish'
+        print("(sound_classifier.py) Loading VGGish feature extractor.")
+        feature_extractor = _get_feature_extractor(feature_extractor_name)
+        class_label_to_id = {l: i for i, l in enumerate(classes)}
+
+        # create the validation set
+        if not isinstance(validation_set, _tc.SFrame) and validation_set == 'auto':
+            if len(dataset) >= 100:
+                print ( "Creating a validation set from 5 percent of training data. This may take a while.\n"
+                        "\tYou can set ``validation_set=None`` to disable validation tracking.\n")
+                dataset, validation_set = dataset.random_split(0.95, exact=True)
+            else:
+                print("(sound_classifer.py) No validation set. Continuing.")
+                validation_set = None
+
+        print("(sound_classifier.py) Encoding target.")
+        encoded_target = dataset[target].apply(lambda x: class_label_to_id[x])
+
+        if _is_deep_feature_sarray(dataset[feature]):
+            print("(sound_classifier.py) Training deep features.")
+            train_deep_features = dataset[feature]
         else:
-            validation_set = None
+            # do the preprocess and VGGish feature extraction
+            print("(sound_classifier.py) Preprocessing audio and extract features.")
+            train_deep_features = get_deep_features(dataset[feature], verbose=verbose)
 
-    encoded_target = dataset[target].apply(lambda x: class_label_to_id[x])
-
-    if _is_deep_feature_sarray(dataset[feature]):
-        train_deep_features = dataset[feature]
+        print("(sound_classifier.py) Adding deep features and labels to sframe.")
+        train_data = _tc.SFrame({'deep features': train_deep_features, 'labels': encoded_target})
+        
+        print("(sound_classifier.py) Saving deep feature train_data for later recall.")
+        train_data.save(deep_feature_directory)
     else:
-        # do the preprocess and VGGish feature extraction
-        train_deep_features = get_deep_features(dataset[feature], verbose=verbose)
+        try:
+            train_data.load_sframe(deep_feature_directory)
+        except:
+            print("(sound_classifier.py) Trouble loading sframe. Aborting.")
+            import sys
+            sys.exit()
 
-    train_data = _tc.SFrame({'deep features': train_deep_features, 'labels': encoded_target})
+    print("(sound_classifier.py) Deep features stack.")
     train_data = train_data.stack('deep features', new_column_name='deep features')
+    print("(sound_classifier.py) Dropping missing ids.")
     train_data, missing_ids = train_data.dropna_split(columns=['deep features'])
 
+    print("(sound_classifier.py) Getting batch size.")
     training_batch_size = min(len(train_data), batch_size)
 
+    print("(sound_classifier.py) Creating data iterator.")
     train_data = _create_data_iterator(train_data['deep features'].to_numpy(),
                                        train_data['labels'].to_numpy(),
                                        batch_size=training_batch_size,
@@ -996,8 +1023,6 @@ class SoundClassifier(_CustomModel):
             raise _ToolkitError('Output type \'probability\' is only supported for binary'
                                 ' classification. For multi-class classification, use'
                                 ' predict_topk() instead.')
-        if not isinstance(batch_size, int):
-            raise TypeError("'batch_size' must be of type int.")
         if(batch_size < 1):
             raise ValueError("'batch_size' must be greater than or equal to 1")
 
@@ -1106,11 +1131,8 @@ class SoundClassifier(_CustomModel):
         | ...  |  ...  |        ...        |
         +------+-------+-------------------+
         """
-        if not isinstance(k, int):
-            raise TypeError("'k' must be of type int.")
-        _tk_utils._numeric_param_check_range('k', k, 1, _six.MAXSIZE)
         prob_vector = self.predict(dataset, output_type='probability_vector',
-                                   verbose=verbose, batch_size=batch_size)
+                                   verbose=verbose, batch_size=64)
         id_to_label = self._id_to_class_label
 
         if output_type == 'probability':

@@ -951,6 +951,8 @@ class SFrame(object):
         proxy = UnitySFrameProxy()
         internal_url = _make_internal_url(url)
 
+        print("Reading CSV from " + str(url))
+        
         # Attempt to automatically detect the column types. Either produce a
         # list of types; otherwise default to all str types.
         column_type_inference_was_used = False
@@ -2703,6 +2705,7 @@ class SFrame(object):
         >>> print(len(sf_train), len(sf_test))
         922 102
         """
+        print("(sframe.py) Initiating random split.")
         if (fraction > 1 or fraction < 0):
             raise ValueError('Invalid sampling rate: ' + str(fraction))
         
@@ -2722,6 +2725,7 @@ class SFrame(object):
 
         with cython_context():
             proxy_pair = self.__proxy__.random_split(fraction, seed, exact)
+            print("(sframe.py) Complete. Returning values.")
             return (SFrame(data=[], _proxy=proxy_pair[0]), SFrame(data=[], _proxy=proxy_pair[1]))
 
     def topk(self, column_name, k=10, reverse=False):
@@ -4319,6 +4323,7 @@ class SFrame(object):
             right_names = right.column_names()
             common_columns = [name for name in left_names if name in right_names]
             for name in common_columns:
+                #print("(Sframe) Name: " + str(name))
                 join_keys[name] = name
         elif type(on) is str:
             join_keys[on] = on
@@ -4333,12 +4338,16 @@ class SFrame(object):
             raise TypeError("Must pass a str, list, or dict of join keys")
 
         with cython_context():
+            #print("(Sframe) Alter name: " + str(alter_name))
+            #print("(Sframe) Join_keys: " + str(join_keys))
+            #print("(Sframe) How: " + str(how))
             if alter_name is None:
                 return SFrame(_proxy=self.__proxy__.join(right.__proxy__, how, join_keys))
             if type(alter_name) is dict:
                 left_names = self.column_names()
                 right_names = right.column_names()
                 for (k, v) in alter_name.items():
+                    #print("(Sframe) Key: " + str(k) + ", Value: " + str(v))
                     if (k not in right_names) or (k in join_keys):
                         raise KeyError("Redundant key %s for collision resolution" % k)
                     if k == v:
